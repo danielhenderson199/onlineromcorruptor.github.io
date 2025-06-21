@@ -2,8 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>Danilabs ROM Glitcher + Эмулятор</title>
-  <script src="https://unpkg.com/jsnes@0.8.0/dist/jsnes.min.js"></script>
+  <title>Danilabs ROM Glitcher</title>
   <style>
     body {
       background: #111;
@@ -14,29 +13,20 @@
       align-items: center;
       padding: 2rem;
     }
-
     .container {
       background: #222;
       border: 2px solid #0f0;
       padding: 2rem;
       border-radius: 10px;
-      max-width: 800px;
+      max-width: 600px;
       width: 100%;
       text-align: center;
     }
-
-    canvas {
-      image-rendering: pixelated;
-      margin-top: 1rem;
-      border: 3px solid #0f0;
+    input, button, select {
+      margin: 0.5rem;
+      padding: 0.5rem;
     }
-
-    button, select, input[type="file"], input[type="range"] {
-      margin: 0.7rem 0;
-    }
-
     button {
-      padding: 0.6rem 1.5rem;
       background: #0f0;
       border: none;
       color: #000;
@@ -44,152 +34,82 @@
       cursor: pointer;
       border-radius: 5px;
     }
-
     button:hover {
       background: #5f5;
-    }
-
-    #romInfo {
-      font-size: 0.9rem;
-      margin-top: 1rem;
-      background: #000;
-      padding: 1rem;
-      border-radius: 5px;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>🎮 Danilabs ROM Glitcher + Emulator</h1>
+    <h1>🎮 Danilabs ROM Glitcher</h1>
 
-    <input type="file" id="romFile" accept=".nes" />
+    <input type="file" id="romFile" accept=".nes,.md,.gba,.gbc" />
     <br />
-    <label>🎵 Фоновая музыка: <input type="file" id="musicFile" accept="audio/*" /></label>
-    <br /><br />
-
-    <label for="glitchLevel">Уровень искажения: <span id="glitchValue">10%</span></label><br>
+    <label>Искажение: <span id="glitchValue">10%</span></label><br />
     <input type="range" id="glitchLevel" min="0" max="100" value="10" />
-
     <br />
-    <label for="glitchMode">Режим искажения:</label><br>
     <select id="glitchMode">
-      <option value="random">🔀 Случайный</option>
+      <option value="random">🔀 Случайно</option>
       <option value="graphics">🎨 Только графика</option>
       <option value="logic">🧠 Только логика</option>
-      <option value="sound">🔇 Только звук</option>
     </select>
-
-    <br /><br />
-    <button id="glitchButton">🎮 Искажать и запустить</button>
-
+    <br />
+    <button onclick="glitchROM()">🎮 Искажать ROM</button>
     <p id="status"></p>
-    <div id="romInfo">Информация о ROM появится здесь</div>
-
-    <canvas id="nes-canvas" width="256" height="240"></canvas>
   </div>
 
-  <audio id="bgMusic" loop></audio>
-
   <script>
-    const fileInput = document.getElementById('romFile');
-    const glitchLevel = document.getElementById('glitchLevel');
+    const glitchLevelInput = document.getElementById('glitchLevel');
     const glitchValue = document.getElementById('glitchValue');
-    const glitchMode = document.getElementById('glitchMode');
-    const button = document.getElementById('glitchButton');
-    const status = document.getElementById('status');
-    const romInfo = document.getElementById('romInfo');
-    const musicFile = document.getElementById('musicFile');
-    const audio = document.getElementById('bgMusic');
+    glitchLevelInput.oninput = () => {
+      glitchValue.textContent = glitchLevelInput.value + '%';
+    };
 
-    glitchLevel.addEventListener('input', () => {
-      glitchValue.textContent = glitchLevel.value + '%';
-    });
-
-    fileInput.addEventListener('change', () => {
-      const file = fileInput.files[0];
-      if (!file) return;
-      romInfo.innerHTML = `
-        📦 Имя: <b>${file.name}</b><br>
-        📁 Размер: <b>${file.size} байт</b><br>
-        📀 Формат: <b>${file.name.split('.').pop().toUpperCase()}</b>
-      `;
-    });
-
-    musicFile.addEventListener('change', () => {
-      const file = musicFile.files[0];
-      if (file) {
-        const url = URL.createObjectURL(file);
-        audio.src = url;
-        audio.play();
-      }
-    });
-
-    // jsNES и Canvas
-    const canvas = document.getElementById('nes-canvas');
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, 256, 240);
-
-    const nes = new jsnes.NES({
-      onFrame: function(frameBuffer) {
-        for (let i = 0; i < frameBuffer.length; i++) {
-          const color = frameBuffer[i];
-          imageData.data[i * 4 + 0] = (color >> 16) & 0xFF;
-          imageData.data[i * 4 + 1] = (color >> 8) & 0xFF;
-          imageData.data[i * 4 + 2] = color & 0xFF;
-          imageData.data[i * 4 + 3] = 0xFF;
-        }
-        ctx.putImageData(imageData, 0, 0);
-      },
-      onStatusUpdate: msg => console.log(msg),
-      onAudioSample: () => {}
-    });
-
-    button.addEventListener('click', () => {
+    function glitchROM() {
+      const fileInput = document.getElementById('romFile');
       const file = fileInput.files[0];
       if (!file) {
-        alert('Сначала выберите ROM-файл!');
+        alert("Сначала выберите ROM-файл");
         return;
       }
 
+      const mode = document.getElementById('glitchMode').value;
+      const level = parseInt(glitchLevelInput.value);
       const reader = new FileReader();
-      reader.onload = function(e) {
-        let buffer = new Uint8Array(e.target.result);
-        const glitchAmount = parseInt(glitchLevel.value);
-        const mode = glitchMode.value;
-        const safeZone = 16;
+
+      reader.onload = function (e) {
+        const buffer = new Uint8Array(e.target.result);
         const size = buffer.length;
+        const safeZone = 16;
         let start = safeZone, end = size;
 
-        if (mode === 'graphics') {
-          start = Math.floor(size * 0.5);
-        } else if (mode === 'logic') {
-          end = Math.floor(size * 0.5);
-        } else if (mode === 'sound') {
-          start = Math.floor(size * 0.75);
-        }
+        if (mode === 'graphics') start = Math.floor(size * 0.5);
+        else if (mode === 'logic') end = Math.floor(size * 0.5);
 
-        const changes = Math.floor((end - start) * glitchAmount / 100);
+        const changes = Math.floor((end - start) * level / 100);
         for (let i = 0; i < changes; i++) {
           const index = Math.floor(Math.random() * (end - start)) + start;
           buffer[index] = Math.floor(Math.random() * 256);
         }
 
-        status.textContent = `✅ ROM искажён. Запускаем...`;
+        const blob = new Blob([buffer], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
 
-        // Запуск в эмуляторе
-        nes.loadROM(bufferToBase64(buffer));
+        // Скачиваем файл
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'glitched_' + file.name;
+        a.click();
+
+        document.getElementById('status').textContent = "✅ ROM искажен. Скачан на ваш компьютер.";
+
+        // Подсказка: как загрузить его в эмулятор
+        setTimeout(() => {
+          alert("Теперь зайди на https://demo.emulatorjs.com и загрузи этот ROM вручную.");
+        }, 500);
       };
 
       reader.readAsArrayBuffer(file);
-    });
-
-    // Преобразование в base64
-    function bufferToBase64(buffer) {
-      let binary = '';
-      for (let i = 0; i < buffer.length; i++) {
-        binary += String.fromCharCode(buffer[i]);
-      }
-      return btoa(binary);
     }
   </script>
 </body>
