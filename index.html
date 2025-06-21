@@ -71,6 +71,12 @@
       <option value="sound">🔇 Только звук</option>
     </select>
 
+    <br />
+    <label>
+      <input type="checkbox" id="fixChecksum" />
+      🧩 Исправить чексум (для Sega ROM .bin/.smd)
+    </label>
+
     <br /><br />
     <button id="glitchButton">Искажать и скачать ROM</button>
     <p id="status"></p>
@@ -99,6 +105,18 @@
       `;
     });
 
+    function fixGenesisChecksum(buffer) {
+      if (buffer.length < 0x200) return;
+      let sum = 0;
+      for (let i = 0x200; i < buffer.length; i += 2) {
+        const hi = buffer[i] || 0;
+        const lo = buffer[i + 1] || 0;
+        sum = (sum + ((hi << 8) | lo)) & 0xFFFF;
+      }
+      buffer[0x18E] = (sum >> 8) & 0xFF;
+      buffer[0x18F] = sum & 0xFF;
+    }
+
     button.addEventListener('click', () => {
       const file = fileInput.files[0];
       if (!file) {
@@ -111,7 +129,6 @@
         let buffer = new Uint8Array(e.target.result);
         const glitchAmount = parseInt(glitchLevel.value);
         const mode = glitchMode.value;
-
         const safeZone = 2048;
         const size = buffer.length;
         let start = safeZone, end = size;
@@ -128,10 +145,13 @@
         }
 
         const changes = Math.floor((end - start) * glitchAmount / 100);
-
         for (let i = 0; i < changes; i++) {
           const index = Math.floor(Math.random() * (end - start)) + start;
           buffer[index] = Math.floor(Math.random() * 256);
+        }
+
+        if (document.getElementById('fixChecksum').checked) {
+          fixGenesisChecksum(buffer);
         }
 
         const blob = new Blob([buffer], { type: "application/octet-stream" });
