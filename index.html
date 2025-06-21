@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>ROM Glitcher — Danilabs</title>
+  <title>Danilabs ROM Glitcher PRO</title>
   <style>
     body {
       background: #111;
@@ -14,22 +14,18 @@
       padding: 2rem;
     }
 
-    h1 {
-      color: #0f0;
-    }
-
-    input[type="file"], input[type="range"], button {
-      margin: 1rem 0;
-    }
-
     .container {
       background: #222;
       border: 2px solid #0f0;
       padding: 2rem;
       border-radius: 10px;
-      max-width: 500px;
+      max-width: 600px;
       width: 100%;
       text-align: center;
+    }
+
+    button, select, input[type="file"], input[type="range"] {
+      margin: 0.7rem 0;
     }
 
     button {
@@ -46,25 +42,37 @@
       background: #5f5;
     }
 
-    label {
-      display: block;
+    #romInfo {
+      font-size: 0.9rem;
       margin-top: 1rem;
+      background: #000;
+      padding: 1rem;
+      border-radius: 5px;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>ROM Glitcher</h1>
-    <p>Загрузи свою ROM-игру и искази её специальным ползунком.</p>
+    <h1>ROM Glitcher PRO</h1>
 
-    <input type="file" id="romFile" accept=".nes,.smd,.bin,.gen,.sms" />
+    <input type="file" id="romFile" accept=".nes,.smd,.bin,.gen,.sms,.smc,.gba,.gb" />
     
-    <label for="glitchLevel">Уровень искажения: <span id="glitchValue">10%</span></label>
+    <div id="romInfo">Информация о ROM появится здесь</div>
+
+    <label for="glitchLevel">Уровень искажения: <span id="glitchValue">10%</span></label><br>
     <input type="range" id="glitchLevel" min="0" max="100" value="10" />
 
     <br />
-    <button id="glitchButton">Искажать и скачать ROM</button>
+    <label for="glitchMode">Режим искажения:</label><br>
+    <select id="glitchMode">
+      <option value="random">🔀 Случайный</option>
+      <option value="graphics">🎨 Только графика</option>
+      <option value="logic">🧠 Только логика</option>
+      <option value="sound">🔇 Только звук</option>
+    </select>
 
+    <br /><br />
+    <button id="glitchButton">Искажать и скачать ROM</button>
     <p id="status"></p>
   </div>
 
@@ -72,11 +80,23 @@
     const fileInput = document.getElementById('romFile');
     const glitchLevel = document.getElementById('glitchLevel');
     const glitchValue = document.getElementById('glitchValue');
+    const glitchMode = document.getElementById('glitchMode');
     const button = document.getElementById('glitchButton');
     const status = document.getElementById('status');
+    const romInfo = document.getElementById('romInfo');
 
     glitchLevel.addEventListener('input', () => {
       glitchValue.textContent = glitchLevel.value + '%';
+    });
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      romInfo.innerHTML = `
+        📦 Имя: <b>${file.name}</b><br>
+        📁 Размер: <b>${file.size} байт</b><br>
+        📀 Формат: <b>${file.name.split('.').pop().toUpperCase()}</b>
+      `;
     });
 
     button.addEventListener('click', () => {
@@ -90,11 +110,27 @@
       reader.onload = function(e) {
         let buffer = new Uint8Array(e.target.result);
         const glitchAmount = parseInt(glitchLevel.value);
+        const mode = glitchMode.value;
 
-        // Изменим случайные байты в ROM-файле
-        const changes = Math.floor(buffer.length * glitchAmount / 100);
+        const safeZone = 2048;
+        const size = buffer.length;
+        let start = safeZone, end = size;
+
+        if (mode === 'graphics') {
+          start = Math.floor(size * 0.5);
+          end = size;
+        } else if (mode === 'logic') {
+          start = safeZone;
+          end = Math.floor(size * 0.5);
+        } else if (mode === 'sound') {
+          start = Math.floor(size * 0.75);
+          end = size;
+        }
+
+        const changes = Math.floor((end - start) * glitchAmount / 100);
+
         for (let i = 0; i < changes; i++) {
-          const index = Math.floor(Math.random() * buffer.length);
+          const index = Math.floor(Math.random() * (end - start)) + start;
           buffer[index] = Math.floor(Math.random() * 256);
         }
 
@@ -106,7 +142,7 @@
         link.download = "GLITCHED_" + file.name;
         link.click();
 
-        status.textContent = `Файл искажён и сохранён! Уровень: ${glitchAmount}%`;
+        status.textContent = `✅ ROM искажён. Уровень: ${glitchAmount}%, режим: ${mode}`;
       };
 
       reader.readAsArrayBuffer(file);
