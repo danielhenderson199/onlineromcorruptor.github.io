@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8" />
 <title>MIDI Distorter & Generator</title>
-<script src="https://cdn.jsdelivr.net/npm/@tonejs/midi/build/Tone.Midi.min.js"></script>
 <style>
   body { background: #121212; color: #0f0; font-family: monospace; padding: 15px; }
   label { display: block; margin-top: 10px; }
@@ -40,7 +39,9 @@
 
 <div id="log"></div>
 
-<script>
+<script type="module">
+  import { Midi } from "https://cdn.skypack.dev/@tonejs/midi";
+
   let originalMidi = null;
   let distortedMidi = null;
 
