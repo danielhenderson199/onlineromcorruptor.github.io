@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>ROM Glitcher — Danilabs</title>
+  <style>
+    body {
+      background: #111;
+      color: #0f0;
+      font-family: monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem;
+    }
+
+    h1 {
+      color: #0f0;
+    }
+
+    input[type="file"], input[type="range"], button {
+      margin: 1rem 0;
+    }
+
+    .container {
+      background: #222;
+      border: 2px solid #0f0;
+      padding: 2rem;
+      border-radius: 10px;
+      max-width: 500px;
+      width: 100%;
+      text-align: center;
+    }
+
+    button {
+      padding: 0.6rem 1.5rem;
+      background: #0f0;
+      border: none;
+      color: #000;
+      font-weight: bold;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+
+    button:hover {
+      background: #5f5;
+    }
+
+    label {
+      display: block;
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>ROM Glitcher</h1>
+    <p>Загрузи свою ROM-игру и искази её специальным ползунком.</p>
+
+    <input type="file" id="romFile" accept=".nes,.smd,.bin,.gen,.sms" />
+    
+    <label for="glitchLevel">Уровень искажения: <span id="glitchValue">10%</span></label>
+    <input type="range" id="glitchLevel" min="0" max="100" value="10" />
+
+    <br />
+    <button id="glitchButton">Искажать и скачать ROM</button>
+
+    <p id="status"></p>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('romFile');
+    const glitchLevel = document.getElementById('glitchLevel');
+    const glitchValue = document.getElementById('glitchValue');
+    const button = document.getElementById('glitchButton');
+    const status = document.getElementById('status');
+
+    glitchLevel.addEventListener('input', () => {
+      glitchValue.textContent = glitchLevel.value + '%';
+    });
+
+    button.addEventListener('click', () => {
+      const file = fileInput.files[0];
+      if (!file) {
+        alert('Сначала выберите ROM-файл!');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        let buffer = new Uint8Array(e.target.result);
+        const glitchAmount = parseInt(glitchLevel.value);
+
+        // Изменим случайные байты в ROM-файле
+        const changes = Math.floor(buffer.length * glitchAmount / 100);
+        for (let i = 0; i < changes; i++) {
+          const index = Math.floor(Math.random() * buffer.length);
+          buffer[index] = Math.floor(Math.random() * 256);
+        }
+
+        const blob = new Blob([buffer], { type: "application/octet-stream" });
+        const url = URL.createObjectURL(blob);
+
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "GLITCHED_" + file.name;
+        link.click();
+
+        status.textContent = `Файл искажён и сохранён! Уровень: ${glitchAmount}%`;
+      };
+
+      reader.readAsArrayBuffer(file);
+    });
+  </script>
+</body>
+</html>
