@@ -2,323 +2,188 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>Мульти-эмулятор с редактором памяти: NES + Sega</title>
+  <title>RT Corruptor + EmulatorJS</title>
   <style>
     body {
       background: #111;
       color: #0f0;
       font-family: monospace;
-      padding: 1rem;
-      user-select: none;
+      padding: 10px;
     }
-    #screen {
-      image-rendering: pixelated;
-      border: 2px solid #0f0;
-      background: black;
-      display: block;
-      margin-bottom: 1rem;
+    #rom-info {
+      margin-bottom: 10px;
     }
     #memory-editor {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      max-width: 100vw;
+      overflow-x: auto;
       max-height: 300px;
-      overflow-y: scroll;
       border: 2px solid #0f0;
-      padding: 0.5rem;
+      padding: 10px;
       background: #222;
-      margin-bottom: 1rem;
-      width: 600px;
+      margin-bottom: 15px;
     }
-    table {
-      border-collapse: collapse;
+    .byte-block {
+      width: 50px;
+      background: #333;
+      border: 1px solid #0f0;
+      padding: 6px;
+      user-select: none;
+    }
+    .addr {
+      font-size: 10px;
+      color: #080;
+      margin-bottom: 4px;
+      text-align: center;
+    }
+    .byte-value {
+      font-size: 14px;
+      margin-bottom: 4px;
+      text-align: center;
+      letter-spacing: 2px;
+    }
+    input[type=range] {
       width: 100%;
     }
-    td, th {
-      border: 1px solid #0f0;
-      padding: 2px 4px;
-      text-align: center;
-      font-size: 12px;
+    #checksum-toggle {
+      margin-top: 15px;
+      margin-bottom: 15px;
+      user-select: none;
     }
-    th {
+    button {
+      margin-top: 10px;
+      padding: 6px 12px;
       background: #0f0;
-      color: #000;
+      border: none;
       cursor: pointer;
+      font-weight: bold;
+      color: #000;
+      border-radius: 4px;
     }
-    input[type="text"] {
-      width: 40px;
-      background: #222;
-      color: #0f0;
-      border: 1px solid #0f0;
-      text-align: center;
-      font-family: monospace;
-    }
-    #controls-desc {
-      max-width: 600px;
-      margin-bottom: 1rem;
+    iframe {
       border: 2px solid #0f0;
-      padding: 0.5rem;
-      background: #222;
+      width: 100%;
+      max-width: 640px;
+      height: 360px;
+      background: #000;
     }
   </style>
 </head>
 <body>
 
-<h1>Мульти-эмулятор с редактором памяти: NES + Sega</h1>
+<h1>RT Corruptor + EmulatorJS</h1>
 
-<label>Выбери систему:
-  <select id="system-select">
-    <option value="nes">NES / Dendy</option>
-    <option value="sega">Sega Genesis / Mega Drive</option>
-  </select>
+<input type="file" id="rom-file" accept=".bin,.nes,.gen,.md,.smd,.sms" />
+<div id="rom-info"></div>
+
+<label id="checksum-toggle">
+  <input type="checkbox" id="checksum" checked />
+  Включить чекcум (checksum)
 </label>
-<br/><br/>
 
-<input type="file" id="rom-file" accept=".nes,.gen,.bin,.md" />
-<button id="start-btn">Запустить ROM</button>
-<br/><br/>
+<div id="memory-editor" style="display:none;"></div>
 
-<canvas id="screen" width="256" height="240"></canvas>
+<button id="save-btn" style="display:none;">Скачать изменённый ROM</button>
 
-<div id="memory-editor">
-  <h3>RAM (Оперативная память)</h3>
-  <table id="ram-table"></table>
-</div>
-
-<p id="status"></p>
-
-<div id="controls-desc">
-  <h3>Управление</h3>
-  <ul id="controls-list">
-    <!-- Наполняется динамически -->
-  </ul>
-</div>
-
-<script src="https://unpkg.com/jsnes/dist/jsnes.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/sega.js@0.0.8/dist/sega.min.js"></script>
+<h2>Эмулятор</h2>
+<iframe id="emulator-frame" src="" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
 
 <script>
-  const screen = document.getElementById('screen');
-  const ctx = screen.getContext('2d');
-  const romFile = document.getElementById('rom-file');
-  const startBtn = document.getElementById('start-btn');
-  const ramTable = document.getElementById('ram-table');
-  const status = document.getElementById('status');
-  const systemSelect = document.getElementById('system-select');
-  const controlsList = document.getElementById('controls-list');
-
-  let nes = null;
-  let sega = null;
-  let frameId = null;
-  let currentSystem = 'nes';
   let romData = null;
+  let currentRomBlobUrl = null;
 
-  // ----------------- Утилиты для вывода изображения -----------------
+  const romFile = document.getElementById('rom-file');
+  const romInfo = document.getElementById('rom-info');
+  const memoryEditor = document.getElementById('memory-editor');
+  const saveBtn = document.getElementById('save-btn');
+  const checksumToggle = document.getElementById('checksum');
+  const emulatorFrame = document.getElementById('emulator-frame');
 
-  function drawFrame(buffer, width=256, height=240) {
-    const imageData = ctx.createImageData(width, height);
-    for(let i = 0; i < buffer.length; i++) {
-      const val = buffer[i];
-      imageData.data[i*4+0] = (val >> 16) & 0xff;
-      imageData.data[i*4+1] = (val >> 8) & 0xff;
-      imageData.data[i*4+2] = val & 0xff;
-      imageData.data[i*4+3] = 0xff;
-    }
-    ctx.putImageData(imageData, 0, 0);
-  }
-
-  // ----------------- NES -----------------
-  function setupNES(rom) {
-    if(nes) {
-      cancelAnimationFrame(frameId);
-      nes = null;
-    }
-    nes = new jsnes.NES({
-      onFrame: function(buffer) {
-        drawFrame(buffer);
-      },
-      onAudioSample: function(left, right) {
-        // Можно добавить звук, если нужно
-      }
-    });
-    nes.loadROM(rom);
-    status.textContent = 'NES загружен.';
-    runNES();
-    renderControls('nes');
-  }
-
-  function runNES() {
-    nes.frame();
-    updateNESRAMTable();
-    frameId = requestAnimationFrame(runNES);
-  }
-
-  function updateNESRAMTable() {
-    // RAM CPU $0000-$07FF
-    const ram = nes.cpu.mem;
-    let html = '<tr><th>Addr</th>';
-    for(let i=0;i<8;i++) html += `<th>+${i.toString(16).toUpperCase()}</th>`;
-    html += '</tr>';
-    for(let addr=0;addr<0x800;addr+=8) {
-      html += `<tr><td>${addr.toString(16).padStart(4,'0').toUpperCase()}</td>`;
-      for(let off=0;off<8;off++) {
-        const val = ram[addr+off];
-        html += `<td>${val.toString(16).padStart(2,'0').toUpperCase()}</td>`;
-      }
-      html += '</tr>';
-    }
-    ramTable.innerHTML = html;
-  }
-
-  // ----------------- Sega -----------------
-  function setupSega(rom) {
-    if(sega) {
-      cancelAnimationFrame(frameId);
-      sega = null;
-    }
-    // Sega.js API https://github.com/nomi9995/sega.js
-    sega = new Sega({
-      canvas: screen,
-      onFrame: () => {
-        // рисуем через canvas - sega.js уже сам рисует
-        // ничего делать не надо
-      }
-    });
-    sega.loadROM(rom);
-    status.textContent = 'Sega Genesis загружен.';
-    runSega();
-    renderControls('sega');
-  }
-
-  function runSega() {
-    sega.frame();
-    updateSegaRAMTable();
-    frameId = requestAnimationFrame(runSega);
-  }
-
-  function updateSegaRAMTable() {
-    // В sega.js доступ к RAM сложнее, тут примерный вариант:
-    // sega.memory.ram - Uint8Array 64KB
-    if(!sega || !sega.memory || !sega.memory.ram) {
-      ramTable.innerHTML = '<tr><td>RAM не доступна</td></tr>';
-      return;
-    }
-    const ram = sega.memory.ram;
-    let html = '<tr><th>Addr</th>';
-    for(let i=0;i<8;i++) html += `<th>+${i.toString(16).toUpperCase()}</th>`;
-    html += '</tr>';
-    for(let addr=0;addr<0x4000;addr+=8) {
-      html += `<tr><td>${addr.toString(16).padStart(4,'0').toUpperCase()}</td>`;
-      for(let off=0;off<8;off++) {
-        const val = ram[addr+off];
-        html += `<td>${val.toString(16).padStart(2,'0').toUpperCase()}</td>`;
-      }
-      html += '</tr>';
-    }
-    ramTable.innerHTML = html;
-  }
-
-  // ----------------- Загрузка файла -----------------
   romFile.addEventListener('change', (e) => {
     const file = e.target.files[0];
-    if(!file) return;
+    if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
       romData = new Uint8Array(reader.result);
-      status.textContent = `ROM "${file.name}" загружен (${romData.length} байт)`;
+      romInfo.textContent = `Файл "${file.name}" загружен, размер: ${romData.length} байт.`;
+      renderMemoryEditor();
+      memoryEditor.style.display = 'flex';
+      saveBtn.style.display = 'inline-block';
+
+      loadEmulatorWithRom();
     };
     reader.readAsArrayBuffer(file);
   });
 
-  // ----------------- Запуск -----------------
-  startBtn.onclick = () => {
-    if(!romData) {
-      alert('Выберите ROM файл');
-      return;
-    }
-    currentSystem = systemSelect.value;
-    if(currentSystem === 'nes') {
-      setupNES(romData);
-    } else if(currentSystem === 'sega') {
-      setupSega(romData);
-    }
-  };
+  function renderMemoryEditor() {
+    memoryEditor.innerHTML = '';
+    const maxBytesToShow = Math.min(128, romData.length); // ограничим, чтобы не тормозило
+    for (let i = 0; i < maxBytesToShow; i++) {
+      const byteBlock = document.createElement('div');
+      byteBlock.className = 'byte-block';
 
-  // ----------------- Отображение управления -----------------
-  function renderControls(system) {
-    let html = '';
-    if(system === 'nes') {
-      html = `
-        <li>Стрелки — движение (Up, Down, Left, Right)</li>
-        <li>Z — Кнопка A</li>
-        <li>X — Кнопка B</li>
-        <li>Enter — Start</li>
-        <li>Shift — Select</li>
-      `;
-    } else if(system === 'sega') {
-      html = `
-        <li>Стрелки — движение</li>
-        <li>Z — Кнопка A</li>
-        <li>X — Кнопка B</li>
-        <li>A — Кнопка C</li>
-        <li>Enter — Start</li>
-      `;
+      const addrDiv = document.createElement('div');
+      addrDiv.className = 'addr';
+      addrDiv.textContent = i.toString(16).padStart(4, '0').toUpperCase();
+      byteBlock.appendChild(addrDiv);
+
+      const valDiv = document.createElement('div');
+      valDiv.className = 'byte-value';
+      valDiv.textContent = romData[i].toString(16).padStart(2, '0').toUpperCase();
+      byteBlock.appendChild(valDiv);
+
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.min = 0;
+      slider.max = 255;
+      slider.value = romData[i];
+      slider.addEventListener('input', () => {
+        romData[i] = Number(slider.value);
+        valDiv.textContent = Number(slider.value).toString(16).padStart(2, '0').toUpperCase();
+        if (checksumToggle.checked) {
+          // Здесь можно добавить логику по checksum
+          byteBlock.style.borderColor = '#ff0';
+        } else {
+          byteBlock.style.borderColor = '#0f0';
+        }
+        // Перезагружаем эмулятор с обновлённым ROM
+        loadEmulatorWithRom();
+      });
+      byteBlock.appendChild(slider);
+
+      memoryEditor.appendChild(byteBlock);
     }
-    controlsList.innerHTML = html;
   }
 
-  // ----------------- Управление клавишами -----------------
-  window.addEventListener('keydown', e => {
-    if(currentSystem === 'nes' && nes) {
-      switch(e.key) {
-        case 'ArrowUp': nes.buttonDown(1, jsnes.Controller.BUTTON_UP); break;
-        case 'ArrowDown': nes.buttonDown(1, jsnes.Controller.BUTTON_DOWN); break;
-        case 'ArrowLeft': nes.buttonDown(1, jsnes.Controller.BUTTON_LEFT); break;
-        case 'ArrowRight': nes.buttonDown(1, jsnes.Controller.BUTTON_RIGHT); break;
-        case 'z': case 'Z': nes.buttonDown(1, jsnes.Controller.BUTTON_A); break;
-        case 'x': case 'X': nes.buttonDown(1, jsnes.Controller.BUTTON_B); break;
-        case 'Enter': nes.buttonDown(1, jsnes.Controller.BUTTON_START); break;
-        case 'Shift': nes.buttonDown(1, jsnes.Controller.BUTTON_SELECT); break;
-      }
+  function loadEmulatorWithRom() {
+    if (currentRomBlobUrl) {
+      URL.revokeObjectURL(currentRomBlobUrl);
+      currentRomBlobUrl = null;
     }
-    if(currentSystem === 'sega' && sega) {
-      switch(e.key) {
-        case 'ArrowUp': sega.input.setKey('up', true); break;
-        case 'ArrowDown': sega.input.setKey('down', true); break;
-        case 'ArrowLeft': sega.input.setKey('left', true); break;
-        case 'ArrowRight': sega.input.setKey('right', true); break;
-        case 'z': case 'Z': sega.input.setKey('a', true); break;
-        case 'x': case 'X': sega.input.setKey('b', true); break;
-        case 'a': case 'A': sega.input.setKey('c', true); break;
-        case 'Enter': sega.input.setKey('start', true); break;
-      }
-    }
-  });
+    const blob = new Blob([romData], { type: 'application/octet-stream' });
+    currentRomBlobUrl = URL.createObjectURL(blob);
 
-  window.addEventListener('keyup', e => {
-    if(currentSystem === 'nes' && nes) {
-      switch(e.key) {
-        case 'ArrowUp': nes.buttonUp(1, jsnes.Controller.BUTTON_UP); break;
-        case 'ArrowDown': nes.buttonUp(1, jsnes.Controller.BUTTON_DOWN); break;
-        case 'ArrowLeft': nes.buttonUp(1, jsnes.Controller.BUTTON_LEFT); break;
-        case 'ArrowRight': nes.buttonUp(1, jsnes.Controller.BUTTON_RIGHT); break;
-        case 'z': case 'Z': nes.buttonUp(1, jsnes.Controller.BUTTON_A); break;
-        case 'x': case 'X': nes.buttonUp(1, jsnes.Controller.BUTTON_B); break;
-        case 'Enter': nes.buttonUp(1, jsnes.Controller.BUTTON_START); break;
-        case 'Shift': nes.buttonUp(1, jsnes.Controller.BUTTON_SELECT); break;
-      }
-    }
-    if(currentSystem === 'sega' && sega) {
-      switch(e.key) {
-        case 'ArrowUp': sega.input.setKey('up', false); break;
-        case 'ArrowDown': sega.input.setKey('down', false); break;
-        case 'ArrowLeft': sega.input.setKey('left', false); break;
-        case 'ArrowRight': sega.input.setKey('right', false); break;
-        case 'z': case 'Z': sega.input.setKey('a', false); break;
-        case 'x': case 'X': sega.input.setKey('b', false); break;
-        case 'a': case 'A': sega.input.setKey('c', false); break;
-        case 'Enter': sega.input.setKey('start', false); break;
-      }
-    }
-  });
+    // Формируем URL для demo.emulatorjs.org
+    // Пример: https://demo.emulatorjs.org/?game=https://example.com/rom.bin
+    const url = `https://demo.emulatorjs.org/?game=${encodeURIComponent(currentRomBlobUrl)}`;
 
+    emulatorFrame.src = url;
+  }
+
+  saveBtn.addEventListener('click', () => {
+    if (!romData) return;
+    const blob = new Blob([romData], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'modified_rom.bin';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
 </script>
 
 </body>
