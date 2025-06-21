@@ -61,7 +61,7 @@
     if (!file) return;
     const arrayBuffer = await file.arrayBuffer();
     try {
-      originalMidi = new Tone.Midi(arrayBuffer);
+      originalMidi = new Midi(arrayBuffer);
       distortedMidi = null;
       log(`Загружен MIDI: ${file.name}, треков: ${originalMidi.tracks.length}`);
       processBtn.disabled = false;
@@ -76,13 +76,12 @@
   }
 
   function distortMidi(midi, pitchShift, probGen, probDistort, addPercussion) {
-    const newMidi = new Tone.Midi();
+    const newMidi = new Midi();
     newMidi.header = midi.header;
 
     midi.tracks.forEach(track => {
       const newTrack = newMidi.addTrack();
       track.notes.forEach(note => {
-        // Искажение нот
         let newNote = {...note};
 
         if (Math.random() * 100 < probDistort) {
@@ -93,7 +92,6 @@
 
         newTrack.addNote(newNote);
 
-        // Добавление случайных нот
         if (Math.random() * 100 < probGen) {
           const randMidi = randomInt(48, 84);
           newTrack.addNote({
@@ -106,7 +104,6 @@
       });
     });
 
-    // Перкуссия
     if (addPercussion) {
       const percTrack = newMidi.addTrack();
       percTrack.channel = 9;
