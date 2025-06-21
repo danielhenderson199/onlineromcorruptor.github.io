@@ -52,6 +52,7 @@
       <option value="random">🔀 Случайно</option>
       <option value="graphics">🎨 Только графика</option>
       <option value="logic">🧠 Только логика</option>
+      <option value="sound">🔊 Только звук</option>
     </select>
     <br />
     <button onclick="glitchROM()">🎮 Искажать ROM</button>
@@ -83,8 +84,25 @@
         const safeZone = 16;
         let start = safeZone, end = size;
 
-        if (mode === 'graphics') start = Math.floor(size * 0.5);
-        else if (mode === 'logic') end = Math.floor(size * 0.5);
+        switch (mode) {
+          case 'graphics':
+            start = Math.floor(size * 0.5);
+            end = size;
+            break;
+          case 'logic':
+            start = safeZone;
+            end = Math.floor(size * 0.5);
+            break;
+          case 'sound':
+            // Примерный участок с аудио-данными в ROM
+            start = Math.floor(size * 0.25);
+            end = Math.floor(size * 0.4);
+            break;
+          case 'random':
+          default:
+            start = safeZone;
+            end = size;
+        }
 
         const changes = Math.floor((end - start) * level / 100);
         for (let i = 0; i < changes; i++) {
