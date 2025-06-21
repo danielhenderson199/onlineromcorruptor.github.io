@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8" />
-<title>MIDI Distorter & Generator - Только загрузка и скачивание</title>
+<title>MIDI Distorter & Generator</title>
 <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi/build/Tone.Midi.min.js"></script>
 <style>
   body { background: #121212; color: #0f0; font-family: monospace; padding: 15px; }
@@ -61,7 +61,7 @@
     if (!file) return;
     const arrayBuffer = await file.arrayBuffer();
     try {
-      originalMidi = new Midi(arrayBuffer);
+      originalMidi = new Tone.Midi(arrayBuffer);
       distortedMidi = null;
       log(`Загружен MIDI: ${file.name}, треков: ${originalMidi.tracks.length}`);
       processBtn.disabled = false;
@@ -76,7 +76,7 @@
   }
 
   function distortMidi(midi, pitchShift, probGen, probDistort, addPercussion) {
-    const newMidi = new Midi();
+    const newMidi = new Tone.Midi();
     newMidi.header = midi.header;
 
     midi.tracks.forEach(track => {
