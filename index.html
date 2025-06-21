@@ -1,188 +1,200 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8" />
-  <title>RT Corruptor + EmulatorJS</title>
-  <style>
-    body {
-      background: #111;
-      color: #0f0;
-      font-family: monospace;
-      padding: 10px;
-    }
-    #rom-info {
-      margin-bottom: 10px;
-    }
-    #memory-editor {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      max-width: 100vw;
-      overflow-x: auto;
-      max-height: 300px;
-      border: 2px solid #0f0;
-      padding: 10px;
-      background: #222;
-      margin-bottom: 15px;
-    }
-    .byte-block {
-      width: 50px;
-      background: #333;
-      border: 1px solid #0f0;
-      padding: 6px;
-      user-select: none;
-    }
-    .addr {
-      font-size: 10px;
-      color: #080;
-      margin-bottom: 4px;
-      text-align: center;
-    }
-    .byte-value {
-      font-size: 14px;
-      margin-bottom: 4px;
-      text-align: center;
-      letter-spacing: 2px;
-    }
-    input[type=range] {
-      width: 100%;
-    }
-    #checksum-toggle {
-      margin-top: 15px;
-      margin-bottom: 15px;
-      user-select: none;
-    }
-    button {
-      margin-top: 10px;
-      padding: 6px 12px;
-      background: #0f0;
-      border: none;
-      cursor: pointer;
-      font-weight: bold;
-      color: #000;
-      border-radius: 4px;
-    }
-    iframe {
-      border: 2px solid #0f0;
-      width: 100%;
-      max-width: 640px;
-      height: 360px;
-      background: #000;
-    }
-  </style>
+<meta charset="UTF-8" />
+<title>MIDI Distorter + Generator</title>
+<script src="https://cdn.jsdelivr.net/npm/@tonejs/midi/build/Tone.Midi.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tone/build/Tone.min.js"></script>
+<style>
+  body { background: #121212; color: #0f0; font-family: monospace; padding: 15px; }
+  label { display: block; margin-top: 10px; }
+  input[type=range] { width: 300px; }
+  button { margin-top: 15px; background: #0f0; border: none; padding: 8px 15px; color: #000; font-weight: bold; cursor: pointer; border-radius: 5px; }
+  #log { margin-top: 15px; max-height: 100px; overflow-y: auto; font-size: 14px; }
+</style>
 </head>
 <body>
 
-<h1>RT Corruptor + EmulatorJS</h1>
+<h1>MIDI Distorter & Generator</h1>
 
-<input type="file" id="rom-file" accept=".bin,.nes,.gen,.md,.smd,.sms" />
-<div id="rom-info"></div>
-
-<label id="checksum-toggle">
-  <input type="checkbox" id="checksum" checked />
-  Включить чекcум (checksum)
+<label>Загрузить MIDI файл:
+  <input type="file" id="midi-file" accept=".mid,.midi" />
 </label>
 
-<div id="memory-editor" style="display:none;"></div>
+<label>Изменить питч (полутонов): <span id="pitch-val">0</span>
+  <input type="range" id="pitch" min="-12" max="12" value="0" />
+</label>
 
-<button id="save-btn" style="display:none;">Скачать изменённый ROM</button>
+<label>Вероятность добавления случайной ноты (%): <span id="prob-gen-val">10</span>
+  <input type="range" id="prob-gen" min="0" max="100" value="10" />
+</label>
 
-<h2>Эмулятор</h2>
-<iframe id="emulator-frame" src="" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+<label>Вероятность искажения ноты (%): <span id="prob-distort-val">10</span>
+  <input type="range" id="prob-distort" min="0" max="100" value="10" />
+</label>
+
+<label>Добавлять случайную перкуссию (барабаны):
+  <input type="checkbox" id="add-percussion" checked />
+</label>
+
+<button id="process-btn" disabled>Искажать и играть</button>
+<button id="download-btn" disabled>Скачать изменённый MIDI</button>
+
+<div id="log"></div>
 
 <script>
-  let romData = null;
-  let currentRomBlobUrl = null;
+  let originalMidi = null;
+  let distortedMidi = null;
 
-  const romFile = document.getElementById('rom-file');
-  const romInfo = document.getElementById('rom-info');
-  const memoryEditor = document.getElementById('memory-editor');
-  const saveBtn = document.getElementById('save-btn');
-  const checksumToggle = document.getElementById('checksum');
-  const emulatorFrame = document.getElementById('emulator-frame');
+  const midiFileInput = document.getElementById('midi-file');
+  const pitchSlider = document.getElementById('pitch');
+  const probGenSlider = document.getElementById('prob-gen');
+  const probDistortSlider = document.getElementById('prob-distort');
+  const addPercussionCheckbox = document.getElementById('add-percussion');
+  const processBtn = document.getElementById('process-btn');
+  const downloadBtn = document.getElementById('download-btn');
+  const logDiv = document.getElementById('log');
 
-  romFile.addEventListener('change', (e) => {
+  function log(msg) {
+    logDiv.textContent = msg;
+  }
+
+  midiFileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      romData = new Uint8Array(reader.result);
-      romInfo.textContent = `Файл "${file.name}" загружен, размер: ${romData.length} байт.`;
-      renderMemoryEditor();
-      memoryEditor.style.display = 'flex';
-      saveBtn.style.display = 'inline-block';
-
-      loadEmulatorWithRom();
-    };
-    reader.readAsArrayBuffer(file);
+    const arrayBuffer = await file.arrayBuffer();
+    originalMidi = new Midi(arrayBuffer);
+    distortedMidi = null;
+    log(`Загружен MIDI: ${file.name}, треков: ${originalMidi.tracks.length}`);
+    processBtn.disabled = false;
+    downloadBtn.disabled = true;
   });
 
-  function renderMemoryEditor() {
-    memoryEditor.innerHTML = '';
-    const maxBytesToShow = Math.min(128, romData.length); // ограничим, чтобы не тормозило
-    for (let i = 0; i < maxBytesToShow; i++) {
-      const byteBlock = document.createElement('div');
-      byteBlock.className = 'byte-block';
+  function randomInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
 
-      const addrDiv = document.createElement('div');
-      addrDiv.className = 'addr';
-      addrDiv.textContent = i.toString(16).padStart(4, '0').toUpperCase();
-      byteBlock.appendChild(addrDiv);
+  function distortMidi(midi, pitchShift, probGen, probDistort, addPercussion) {
+    const newMidi = new Midi();
+    newMidi.header = midi.header;
 
-      const valDiv = document.createElement('div');
-      valDiv.className = 'byte-value';
-      valDiv.textContent = romData[i].toString(16).padStart(2, '0').toUpperCase();
-      byteBlock.appendChild(valDiv);
+    // Копируем и искажаем треки
+    midi.tracks.forEach((track, trackIdx) => {
+      const newTrack = newMidi.addTrack();
 
-      const slider = document.createElement('input');
-      slider.type = 'range';
-      slider.min = 0;
-      slider.max = 255;
-      slider.value = romData[i];
-      slider.addEventListener('input', () => {
-        romData[i] = Number(slider.value);
-        valDiv.textContent = Number(slider.value).toString(16).padStart(2, '0').toUpperCase();
-        if (checksumToggle.checked) {
-          // Здесь можно добавить логику по checksum
-          byteBlock.style.borderColor = '#ff0';
-        } else {
-          byteBlock.style.borderColor = '#0f0';
+      track.notes.forEach(note => {
+        let newNote = {...note};
+
+        // Случайная генерация новых нот
+        if (Math.random() * 100 < probGen) {
+          const randMidi = randomInt(48, 84); // Диапазон C3-B5
+          newTrack.addNote({
+            midi: randMidi,
+            time: note.time + Math.random() * 0.5,
+            duration: note.duration,
+            velocity: Math.min(1, note.velocity + Math.random() * 0.5)
+          });
         }
-        // Перезагружаем эмулятор с обновлённым ROM
-        loadEmulatorWithRom();
+
+        // Искажение нот с вероятностью
+        if (Math.random() * 100 < probDistort) {
+          newNote.midi += pitchShift;
+          if (newNote.midi < 0) newNote.midi = 0;
+          if (newNote.midi > 127) newNote.midi = 127;
+        }
+
+        newTrack.addNote(newNote);
       });
-      byteBlock.appendChild(slider);
+    });
 
-      memoryEditor.appendChild(byteBlock);
+    // Добавляем перкуссию как отдельный трек
+    if (addPercussion) {
+      const percTrack = newMidi.addTrack();
+      percTrack.channel = 9; // Канал 10 - перкуссия
+      // Добавим случайные удары
+      for (let t = 0; t < 30; t += 0.25) {
+        if (Math.random() < 0.1) {
+          const drumNote = randomInt(35, 81); // диапазон барабанов
+          percTrack.addNote({
+            midi: drumNote,
+            time: t,
+            duration: 0.1,
+            velocity: 0.8
+          });
+        }
+      }
     }
+
+    return newMidi;
   }
 
-  function loadEmulatorWithRom() {
-    if (currentRomBlobUrl) {
-      URL.revokeObjectURL(currentRomBlobUrl);
-      currentRomBlobUrl = null;
+  async function playMidi(midi) {
+    await Tone.start();
+    Tone.Transport.cancel();
+    Tone.Transport.stop();
+
+    // Чистим старые синтезаторы
+    if (window.synth) {
+      window.synth.dispose();
     }
-    const blob = new Blob([romData], { type: 'application/octet-stream' });
-    currentRomBlobUrl = URL.createObjectURL(blob);
+    window.synth = new Tone.PolySynth(Tone.Synth).toDestination();
 
-    // Формируем URL для demo.emulatorjs.org
-    // Пример: https://demo.emulatorjs.org/?game=https://example.com/rom.bin
-    const url = `https://demo.emulatorjs.org/?game=${encodeURIComponent(currentRomBlobUrl)}`;
+    // Создаем последовательность из нот
+    midi.tracks.forEach(track => {
+      track.notes.forEach(note => {
+        const now = Tone.now();
+        window.synth.triggerAttackRelease(
+          Tone.Frequency(note.midi, "midi"),
+          note.duration,
+          now + note.time,
+          note.velocity
+        );
+      });
+    });
 
-    emulatorFrame.src = url;
+    Tone.Transport.start();
   }
 
-  saveBtn.addEventListener('click', () => {
-    if (!romData) return;
-    const blob = new Blob([romData], { type: 'application/octet-stream' });
+  processBtn.addEventListener('click', () => {
+    if (!originalMidi) return;
+    const pitchShift = parseInt(pitchSlider.value);
+    const probGen = parseInt(probGenSlider.value);
+    const probDistort = parseInt(probDistortSlider.value);
+    const addPercussion = addPercussionCheckbox.checked;
+
+    distortedMidi = distortMidi(originalMidi, pitchShift, probGen, probDistort, addPercussion);
+    log("MIDI искажен, проигрываем...");
+
+    playMidi(distortedMidi).catch(e => {
+      log("Ошибка воспроизведения: " + e.message);
+    });
+
+    downloadBtn.disabled = false;
+  });
+
+  downloadBtn.addEventListener('click', () => {
+    if (!distortedMidi) return;
+    const bytes = distortedMidi.toArray();
+    const blob = new Blob([bytes], {type: "audio/midi"});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'modified_rom.bin';
+    a.download = "distorted.mid";
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  });
+
+  // Обновление подписей к слайдерам
+  pitchSlider.addEventListener('input', () => {
+    document.getElementById('pitch-val').textContent = pitchSlider.value;
+  });
+  probGenSlider.addEventListener('input', () => {
+    document.getElementById('prob-gen-val').textContent = probGenSlider.value;
+  });
+  probDistortSlider.addEventListener('input', () => {
+    document.getElementById('prob-distort-val').textContent = probDistortSlider.value;
   });
 </script>
 
