@@ -35,6 +35,10 @@
   <input type="checkbox" id="add-percussion" checked />
 </label>
 
+<label>Игра в обратном направлении:
+  <input type="checkbox" id="reverse-melody" />
+</label>
+
 <button id="process-btn" disabled>Искажать и скачать</button>
 
 <div id="log"></div>
@@ -50,6 +54,7 @@
   const probGenSlider = document.getElementById('prob-gen');
   const probDistortSlider = document.getElementById('prob-distort');
   const addPercussionCheckbox = document.getElementById('add-percussion');
+  const reverseCheckbox = document.getElementById('reverse-melody');
   const processBtn = document.getElementById('process-btn');
   const logDiv = document.getElementById('log');
 
@@ -76,13 +81,26 @@
     return Math.floor(Math.random() * (max - min + 1)) + min;
   }
 
-  function distortMidi(midi, pitchShift, probGen, probDistort, addPercussion) {
+  function distortMidi(midi, pitchShift, probGen, probDistort, addPercussion, reverse) {
     const newMidi = new Midi();
     newMidi.header = midi.header;
 
     midi.tracks.forEach(track => {
       const newTrack = newMidi.addTrack();
-      track.notes.forEach(note => {
+
+      let notes = [...track.notes];
+
+      if (reverse) {
+        // Определим максимальное время ноты
+        const maxTime = Math.max(...notes.map(n => n.time + n.duration));
+        // Реверсим ноты по времени: новая позиция = maxTime - (time + duration)
+        notes = notes.map(n => ({
+          ...n,
+          time: maxTime - (n.time + n.duration)
+        })).sort((a,b) => a.time - b.time);
+      }
+
+      notes.forEach(note => {
         let newNote = {...note};
 
         if (Math.random() * 100 < probDistort) {
@@ -143,8 +161,9 @@
     const probGen = parseInt(probGenSlider.value);
     const probDistort = parseInt(probDistortSlider.value);
     const addPercussion = addPercussionCheckbox.checked;
+    const reverse = reverseCheckbox.checked;
 
-    distortedMidi = distortMidi(originalMidi, pitchShift, probGen, probDistort, addPercussion);
+    distortedMidi = distortMidi(originalMidi, pitchShift, probGen, probDistort, addPercussion, reverse);
     log('Готово! Скачиваем...');
     downloadMidi(distortedMidi);
   });
