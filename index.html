@@ -2,9 +2,8 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8" />
-<title>MIDI Distorter + Generator</title>
+<title>MIDI Distorter & Generator - Только загрузка и скачивание</title>
 <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi/build/Tone.Midi.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/tone/build/Tone.min.js"></script>
 <style>
   body { background: #121212; color: #0f0; font-family: monospace; padding: 15px; }
   label { display: block; margin-top: 10px; }
@@ -37,8 +36,7 @@
   <input type="checkbox" id="add-percussion" checked />
 </label>
 
-<button id="process-btn" disabled>Искажать и играть</button>
-<button id="download-btn" disabled>Скачать изменённый MIDI</button>
+<button id="process-btn" disabled>Искажать и скачать</button>
 
 <div id="log"></div>
 
@@ -52,7 +50,6 @@
   const probDistortSlider = document.getElementById('prob-distort');
   const addPercussionCheckbox = document.getElementById('add-percussion');
   const processBtn = document.getElementById('process-btn');
-  const downloadBtn = document.getElementById('download-btn');
   const logDiv = document.getElementById('log');
 
   function log(msg) {
@@ -63,11 +60,15 @@
     const file = e.target.files[0];
     if (!file) return;
     const arrayBuffer = await file.arrayBuffer();
-    originalMidi = new Midi(arrayBuffer);
-    distortedMidi = null;
-    log(`Загружен MIDI: ${file.name}, треков: ${originalMidi.tracks.length}`);
-    processBtn.disabled = false;
-    downloadBtn.disabled = true;
+    try {
+      originalMidi = new Midi(arrayBuffer);
+      distortedMidi = null;
+      log(`Загружен MIDI: ${file.name}, треков: ${originalMidi.tracks.length}`);
+      processBtn.disabled = false;
+    } catch (err) {
+      log('Ошибка при чтении MIDI: ' + err.message);
+      processBtn.disabled = true;
+    }
   });
 
   function randomInt(min, max) {
@@ -78,25 +79,12 @@
     const newMidi = new Midi();
     newMidi.header = midi.header;
 
-    // Копируем и искажаем треки
-    midi.tracks.forEach((track, trackIdx) => {
+    midi.tracks.forEach(track => {
       const newTrack = newMidi.addTrack();
-
       track.notes.forEach(note => {
+        // Искажение нот
         let newNote = {...note};
 
-        // Случайная генерация новых нот
-        if (Math.random() * 100 < probGen) {
-          const randMidi = randomInt(48, 84); // Диапазон C3-B5
-          newTrack.addNote({
-            midi: randMidi,
-            time: note.time + Math.random() * 0.5,
-            duration: note.duration,
-            velocity: Math.min(1, note.velocity + Math.random() * 0.5)
-          });
-        }
-
-        // Искажение нот с вероятностью
         if (Math.random() * 100 < probDistort) {
           newNote.midi += pitchShift;
           if (newNote.midi < 0) newNote.midi = 0;
@@ -104,17 +92,27 @@
         }
 
         newTrack.addNote(newNote);
+
+        // Добавление случайных нот
+        if (Math.random() * 100 < probGen) {
+          const randMidi = randomInt(48, 84);
+          newTrack.addNote({
+            midi: randMidi,
+            time: note.time + Math.random() * 0.5,
+            duration: note.duration,
+            velocity: Math.min(1, note.velocity + Math.random() * 0.5)
+          });
+        }
       });
     });
 
-    // Добавляем перкуссию как отдельный трек
+    // Перкуссия
     if (addPercussion) {
       const percTrack = newMidi.addTrack();
-      percTrack.channel = 9; // Канал 10 - перкуссия
-      // Добавим случайные удары
+      percTrack.channel = 9;
       for (let t = 0; t < 30; t += 0.25) {
         if (Math.random() < 0.1) {
-          const drumNote = randomInt(35, 81); // диапазон барабанов
+          const drumNote = randomInt(35, 81);
           percTrack.addNote({
             midi: drumNote,
             time: t,
@@ -128,31 +126,17 @@
     return newMidi;
   }
 
-  async function playMidi(midi) {
-    await Tone.start();
-    Tone.Transport.cancel();
-    Tone.Transport.stop();
-
-    // Чистим старые синтезаторы
-    if (window.synth) {
-      window.synth.dispose();
-    }
-    window.synth = new Tone.PolySynth(Tone.Synth).toDestination();
-
-    // Создаем последовательность из нот
-    midi.tracks.forEach(track => {
-      track.notes.forEach(note => {
-        const now = Tone.now();
-        window.synth.triggerAttackRelease(
-          Tone.Frequency(note.midi, "midi"),
-          note.duration,
-          now + note.time,
-          note.velocity
-        );
-      });
-    });
-
-    Tone.Transport.start();
+  function downloadMidi(midi, filename = 'distorted.mid') {
+    const bytes = midi.toArray();
+    const blob = new Blob([new Uint8Array(bytes)], {type: 'audio/midi'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   processBtn.addEventListener('click', () => {
@@ -163,30 +147,10 @@
     const addPercussion = addPercussionCheckbox.checked;
 
     distortedMidi = distortMidi(originalMidi, pitchShift, probGen, probDistort, addPercussion);
-    log("MIDI искажен, проигрываем...");
-
-    playMidi(distortedMidi).catch(e => {
-      log("Ошибка воспроизведения: " + e.message);
-    });
-
-    downloadBtn.disabled = false;
+    log('Готово! Скачиваем...');
+    downloadMidi(distortedMidi);
   });
 
-  downloadBtn.addEventListener('click', () => {
-    if (!distortedMidi) return;
-    const bytes = distortedMidi.toArray();
-    const blob = new Blob([bytes], {type: "audio/midi"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = "distorted.mid";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  });
-
-  // Обновление подписей к слайдерам
   pitchSlider.addEventListener('input', () => {
     document.getElementById('pitch-val').textContent = pitchSlider.value;
   });
