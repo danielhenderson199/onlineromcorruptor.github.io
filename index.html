@@ -2,7 +2,8 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>Danilabs ROM Glitcher PRO</title>
+  <title>Danilabs ROM Glitcher + Эмулятор</title>
+  <script src="https://unpkg.com/jsnes@0.8.0/dist/jsnes.min.js"></script>
   <style>
     body {
       background: #111;
@@ -19,9 +20,15 @@
       border: 2px solid #0f0;
       padding: 2rem;
       border-radius: 10px;
-      max-width: 600px;
+      max-width: 800px;
       width: 100%;
       text-align: center;
+    }
+
+    canvas {
+      image-rendering: pixelated;
+      margin-top: 1rem;
+      border: 3px solid #0f0;
     }
 
     button, select, input[type="file"], input[type="range"] {
@@ -53,11 +60,12 @@
 </head>
 <body>
   <div class="container">
-    <h1>ROM Glitcher PRO</h1>
+    <h1>🎮 Danilabs ROM Glitcher + Emulator</h1>
 
-    <input type="file" id="romFile" accept=".nes,.smd,.bin,.gen,.sms,.smc,.gba,.gb" />
-    
-    <div id="romInfo">Информация о ROM появится здесь</div>
+    <input type="file" id="romFile" accept=".nes" />
+    <br />
+    <label>🎵 Фоновая музыка: <input type="file" id="musicFile" accept="audio/*" /></label>
+    <br /><br />
 
     <label for="glitchLevel">Уровень искажения: <span id="glitchValue">10%</span></label><br>
     <input type="range" id="glitchLevel" min="0" max="100" value="10" />
@@ -71,16 +79,16 @@
       <option value="sound">🔇 Только звук</option>
     </select>
 
-    <br />
-    <label>
-      <input type="checkbox" id="fixChecksum" />
-      🧩 Исправить чексум (для Sega ROM .bin/.smd)
-    </label>
-
     <br /><br />
-    <button id="glitchButton">Искажать и скачать ROM</button>
+    <button id="glitchButton">🎮 Искажать и запустить</button>
+
     <p id="status"></p>
+    <div id="romInfo">Информация о ROM появится здесь</div>
+
+    <canvas id="nes-canvas" width="256" height="240"></canvas>
   </div>
+
+  <audio id="bgMusic" loop></audio>
 
   <script>
     const fileInput = document.getElementById('romFile');
@@ -90,6 +98,8 @@
     const button = document.getElementById('glitchButton');
     const status = document.getElementById('status');
     const romInfo = document.getElementById('romInfo');
+    const musicFile = document.getElementById('musicFile');
+    const audio = document.getElementById('bgMusic');
 
     glitchLevel.addEventListener('input', () => {
       glitchValue.textContent = glitchLevel.value + '%';
@@ -105,17 +115,34 @@
       `;
     });
 
-    function fixGenesisChecksum(buffer) {
-      if (buffer.length < 0x200) return;
-      let sum = 0;
-      for (let i = 0x200; i < buffer.length; i += 2) {
-        const hi = buffer[i] || 0;
-        const lo = buffer[i + 1] || 0;
-        sum = (sum + ((hi << 8) | lo)) & 0xFFFF;
+    musicFile.addEventListener('change', () => {
+      const file = musicFile.files[0];
+      if (file) {
+        const url = URL.createObjectURL(file);
+        audio.src = url;
+        audio.play();
       }
-      buffer[0x18E] = (sum >> 8) & 0xFF;
-      buffer[0x18F] = sum & 0xFF;
-    }
+    });
+
+    // jsNES и Canvas
+    const canvas = document.getElementById('nes-canvas');
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, 256, 240);
+
+    const nes = new jsnes.NES({
+      onFrame: function(frameBuffer) {
+        for (let i = 0; i < frameBuffer.length; i++) {
+          const color = frameBuffer[i];
+          imageData.data[i * 4 + 0] = (color >> 16) & 0xFF;
+          imageData.data[i * 4 + 1] = (color >> 8) & 0xFF;
+          imageData.data[i * 4 + 2] = color & 0xFF;
+          imageData.data[i * 4 + 3] = 0xFF;
+        }
+        ctx.putImageData(imageData, 0, 0);
+      },
+      onStatusUpdate: msg => console.log(msg),
+      onAudioSample: () => {}
+    });
 
     button.addEventListener('click', () => {
       const file = fileInput.files[0];
@@ -129,19 +156,16 @@
         let buffer = new Uint8Array(e.target.result);
         const glitchAmount = parseInt(glitchLevel.value);
         const mode = glitchMode.value;
-        const safeZone = 2048;
+        const safeZone = 16;
         const size = buffer.length;
         let start = safeZone, end = size;
 
         if (mode === 'graphics') {
           start = Math.floor(size * 0.5);
-          end = size;
         } else if (mode === 'logic') {
-          start = safeZone;
           end = Math.floor(size * 0.5);
         } else if (mode === 'sound') {
           start = Math.floor(size * 0.75);
-          end = size;
         }
 
         const changes = Math.floor((end - start) * glitchAmount / 100);
@@ -150,23 +174,23 @@
           buffer[index] = Math.floor(Math.random() * 256);
         }
 
-        if (document.getElementById('fixChecksum').checked) {
-          fixGenesisChecksum(buffer);
-        }
+        status.textContent = `✅ ROM искажён. Запускаем...`;
 
-        const blob = new Blob([buffer], { type: "application/octet-stream" });
-        const url = URL.createObjectURL(blob);
-
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = "GLITCHED_" + file.name;
-        link.click();
-
-        status.textContent = `✅ ROM искажён. Уровень: ${glitchAmount}%, режим: ${mode}`;
+        // Запуск в эмуляторе
+        nes.loadROM(bufferToBase64(buffer));
       };
 
       reader.readAsArrayBuffer(file);
     });
+
+    // Преобразование в base64
+    function bufferToBase64(buffer) {
+      let binary = '';
+      for (let i = 0; i < buffer.length; i++) {
+        binary += String.fromCharCode(buffer[i]);
+      }
+      return btoa(binary);
+    }
   </script>
 </body>
 </html>
